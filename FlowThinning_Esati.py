@@ -1,0 +1,665 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Oct 19 20:54:17 2020
+
+@author: Shkurte Esati
+-------------------------------------------------------------------------
+
+Reads data for a flow thinning problem, builds the model, and solves it.
+
+Input data:
+    
+set of IP nodes V
+set of IP links E
+set of optical nodes O
+set of fibre links M
+set of Demands D
+volume traffic h(d)
+alpha(e,s)
+set of states S
+set of sdmissible paths P(d)
+set of links E(d,p) composing paths p ∈ P(d)
+set of paths R(d,e) in P(d) that traverse link e
+subset of states S(e), s ∈ S for which a particular link is not fully available
+subset of links E(s) in E that are not fully available in state s ∈ S
+
+Modeling variables:
+Type 1 - Ye0      capacity of IP link e ∈ E in failure free mode  
+Type 2 - xdp0     Nominal capacity of tunnel for demand d ∈ D routed over path p ∈ P(d) in failure free mode
+Type 3 - xdps     Nominal capacity of tunnel for d ∈ D routed over path p ∈ P(d), when the network is in state s      
+
+Objective:
+minimize sum(e ∈ E) Ye0
+
+Constraints:
+Type 1:     forall IP links e ∈ E: sum(d ∈ D) sum(p ∈ p(d)) xdp0 <= Ye0 
+Type 2:     forall demands d ∈ D, forall states s ∈ S : sum(p ∈ p(d)) xdps >= h(d)
+Type 3:     forall IP links e ∈ E, forall states s ∈ S(e): sum(d ∈ D) sum(p ∈ R(d,e)) xdps <= alpha(e,s) * Ye0
+Type 4:     forall demands d ∈ D, forall paths p ∈ p(d), forall states s ∈ S:  xdps <= xdp0
+Type 5:     forall IP links e ∈ E:  Ye0 >= 0
+Type 6:     forall demands d ∈ D, forall paths p ∈ p(d): xdp0 >= 0
+Type 7:     forall demands d ∈ D, forall paths p ∈ p(d), forall states s ∈ S:  xdps >= 0    
+  
+
+"""
+from __future__ import print_function
+
+import pandas as pd
+
+import cplex
+
+
+import os.path
+from openpyxl import Workbook
+import openpyxl
+
+
+
+def main():
+    
+    flowthinning()
+    
+    
+def flowthinning():
+    
+    #Read the data from excel files
+    data = pd.ExcelFile(r'C:\Users\user\Desktop\Research_Project_Shkurte_Esati\Code\example.xlsx')
+    
+    c, var_type1, var_type2, var_type3 = configureproblem(data)
+
+    c.solve()
+
+    writeexcelfile(c, var_type1, var_type2, var_type3)
+
+def writeexcelfile(c, var_type1, var_type2, var_type3):
+
+    solution = c.solution
+
+    # Print the solution status.
+    print()
+    print("Solution status = {0}: {1}".format(
+        solution.get_status(),
+        solution.get_status_string()))
+    print()
+    
+    #################################################
+    
+    #                   Print Objective
+    
+    #################################################
+    
+    # Print te objective value
+    print("Objective value = ", solution.get_objective_value())
+    print()
+    
+    #################################################
+    
+    #                   Print Variables
+    
+    #################################################
+    
+    
+    # num_of_variables gets the total number of variabbles
+    num_of_variables = c.variables.get_num()
+    
+    print("Total number of variables is =  %d " % (num_of_variables))
+    print()
+    print()
+
+    
+    # prints the variables of type 1 with their corresponding values and name
+    var_names = c.variables.get_names()
+    x = solution.get_values(var_type1)
+    for j, val in enumerate(x):
+        print("%d Variable {0} = %17.10g".format(var_names[j]) % (j, val))
+    print()
+    
+    
+    # prints the variables of type 2 with their corresponding values and name
+    y = solution.get_values(var_type2)
+    for j, val in enumerate(y):
+        print("%d Variable {0} = %17.10g".format(var_names[j + len(x)]) % (j, val))
+    print()    
+    
+    # prints the variables of type 3 with their corresponding values and name 
+    z = solution.get_values(var_type3)
+    for j, val in enumerate(z):
+        print("%d Variable {0} = %17.10g".format(var_names[j + len(x) + len(y)]) % (j, val))    
+    print()
+    print()
+     
+    #####################################################
+    
+    #                   Print Constraints in the screen
+    
+    #####################################################
+    
+    # num_of_constraints gets the total number of constraints
+    num_of_constraints = c.linear_constraints.get_num()
+    print("Total number of contraints is =  %d " % (num_of_constraints))
+    print()
+    print()
+    
+    # constraint_names gets the names of constraints
+    constraint_names = c.linear_constraints.get_names()
+    
+    # c1_names gets the names of constraint type 1 in a list
+    c1_names = [s for s in constraint_names if 'c1_' in s]
+    print("Constraints of type 1 are: ") 
+    print(*c1_names, sep = ", ")
+    print()
+    
+    # c2_names gets the names of constraint type 2 in a list
+    c2_names = [s for s in constraint_names if 'c2_' in s]
+    print("Constraints of type 2 are: ")
+    print(*c2_names, sep = ", ")
+    print()
+    
+    
+    # c3_names gets the names of constraint type 3 in a list
+    c3_names = [s for s in constraint_names if 'c3_' in s]
+    print("Constraints of type 3 are: ")
+    print(*c3_names, sep = ", ")
+    print() 
+    
+    # c4_names gets the names of constraint type 4 in a list
+    c4_names = [s for s in constraint_names if 'c4_' in s]
+    print("Constraints of type 4 are: ")
+    print(*c4_names, sep = ", ")
+
+
+    ############################################################################################
+    
+    #                  Print variables and constraints in Excel file
+    
+    ############################################################################################
+    
+    fname = r'Results_FlowThinning.xlsx'
+    
+    if os.path.isfile(fname):
+        
+        print('old file')
+        
+        book = openpyxl.load_workbook(fname)
+        
+        book.remove(book['Var Type1'])
+        book.remove(book['Var Type2'])
+        book.remove(book['Var Type3'])
+       
+        
+    else:
+        
+        print('new file')
+        
+        book = Workbook()
+        
+    
+    book.create_sheet('Var Type1')
+    book.create_sheet('Var Type2') 
+    book.create_sheet('Var Type3')
+    
+
+    ######################################################################
+    
+    #                    Print Variables of Type 1
+    
+    
+    ######################################################################
+    
+    sheet = book['Var Type1']
+    sheet['A1'] = 'Index:'
+    sheet['B1'] = 'Name of variable:'
+    sheet['C1'] = 'Value:'
+    
+    for j,val in enumerate(x):
+        
+        sheet['A' + str(j+2)] = j
+        sheet['B' + str(j+2)] = var_names[j]
+        sheet['C' + str(j+2)] = val
+       
+        
+    ######################################################################
+    
+    #                    Print Variables of Type 2
+    
+    
+    ######################################################################
+    
+    sheet = book['Var Type2']
+    sheet['A1'] = 'Index:'
+    sheet['B1'] = 'Name of variable:'
+    sheet['C1'] = 'Value:'
+    
+    for j,val in enumerate(y):
+        
+        sheet['A' + str(j+2)] = j
+        sheet['B' + str(j+2)] = var_names[j+len(x)]
+        sheet['C' + str(j+2)] = val
+           
+    ######################################################################
+    
+    #                  Print Variables of Type 3
+    
+    
+    ######################################################################
+    
+    sheet = book['Var Type3']
+    sheet['A1'] = 'Index:'
+    sheet['B1'] = 'Name of variable:'
+    sheet['C1'] = 'Value:'
+    
+    for j,val in enumerate(z):
+        
+        sheet['A' + str(j+2)] = j
+        sheet['B' + str(j+2)] = var_names[j+len(x)+len(y)]
+        sheet['C' + str(j+2)] = val
+               
+
+    book.save(fname)
+    
+      
+    
+def configureproblem(data):
+    
+    ##############################################################################
+    
+    #                   create a CPLEX object 
+    
+    ##############################################################################
+
+    c = cplex.Cplex()
+
+    ##############################################################################
+    
+    #                     Initialize input data 
+    
+    ##############################################################################
+    
+    
+    #Here we read the data from excel sheets and columns
+    
+    #data specifies the path for the excel file
+    #each set will be read out of the excel file with its specific column
+ 
+    set_IPLinks = pd.read_excel(data, sheet_name='IPlinks' , usecols= ['IP links E'])
+    set_Demands = pd.read_excel(data, sheet_name='Demands' , usecols= ['D Demands'])
+    set_TrafficVolume = pd.read_excel(data, sheet_name='TrafficVolume' , usecols= ['h(d)'])
+    set_States = pd.read_excel(data, sheet_name='States', usecols=['States S'])    
+    set_Paths = pd.read_excel(data, sheet_name='Paths', usecols=['Paths P(d)'])
+    set_paths_per_demand = pd.read_excel(data, sheet_name='Paths', usecols=['paths per demand'])
+    set_Paths_Total = pd.read_excel(data, sheet_name = "Paths")
+    subset_states = pd.read_excel(data, sheet_name='subset states', usecols= ['Subset of States S€'])
+    set_paths_per_link = pd.read_excel(data, sheet_name='Paths R(d,e)', usecols= ['Paths per link'])
+    alpha = pd.read_excel(data, sheet_name='Alpha')
+    
+    # Calc column length
+    N_IPlinks = len(set_IPLinks)
+    N_Demands = len(set_Demands)
+    N_States = len(set_States)
+    N_Paths = len(set_Paths)
+    
+    
+    
+    ##############################################################################
+    # Create list of number of paths belonging to each demand ####################
+    ##############################################################################
+
+    # extract column from pandas dataframe 
+    demandList = set_Paths_Total["D Demands"].tolist()
+
+
+    # loop through all entries
+    counter = 0
+    numPaths_of_d = []
+    loop_counter = 0
+
+    for i in demandList:
+        
+            loop_counter = loop_counter + 1;  
+            if isinstance(i,str) == 0:
+                    counter = counter + 1
+                    if (loop_counter == len(demandList)): 
+                            numPaths_of_d.append(counter)
+                
+                
+            else:
+                    if loop_counter == 1:
+                            counter = 1
+                        
+                    else:
+                        numPaths_of_d.append(counter)
+                        counter = 1
+                        
+                        
+    ##############################################################################
+    
+    #             Add Objective with the purpose of minimizing it 
+    
+    #                minimize sum(e ∈ E) Ye0
+    
+    ##############################################################################
+    
+    c.objective.set_sense(c.objective.sense.minimize)
+    c.objective.set_name("minimze nominal capacity at failure free mode")
+    
+    
+    
+    ###########################################################
+    
+    #                 Add variables
+    
+    ###########################################################
+    
+    
+    
+    ######################################################################################
+    
+    #                     Variable of Type 1 - Ye0  
+    
+    #            capacity of IP link e ∈ E in failure free mode
+    
+    ######################################################################################
+    
+    # to add variables we need these arguments: 
+    #1. objective - if this variable is used in the objective - normally is a list of ones whose length is equal to the number of variables
+    #2. lb - is the lower bound of the variables. It is usually 0.
+    #3. ub -is the upper bound of the variables. It is usually infinity.
+    #4. types - specify the type of variables. In our case all the variables are of type continuous
+    #5. names - specifies the names of variables
+    
+    varnames_type1 = ["ye" + str(e) for e in range(N_IPlinks)]
+    var_type1 = list(c.variables.add(obj = [1.0] * N_IPlinks, 
+                                lb=[0.0] * N_IPlinks,
+                                ub=[cplex.infinity] * N_IPlinks,
+                                types= [c.variables.type.continuous]* N_IPlinks,
+                                names = varnames_type1
+                                ))
+    
+    
+    ###########################################################################################################################
+    
+    #                                        Variable of Type 2 - xdp0     
+    
+    #              Nominal capacity of tunnel for demand d ∈ D routed over path p ∈ P(d) in failure free mode
+    
+    ###########################################################################################################################
+   
+     
+    
+    varnames_type2 = ["xd" + str(d + 1) + "p" + str(p + 1)  for d in range(N_Demands) for p in range(numPaths_of_d[d])]    
+    var_type2 = list(c.variables.add(lb=[0.0] * N_Paths,
+                                ub=[cplex.infinity] * N_Paths,
+                                types= [c.variables.type.continuous] * N_Paths,
+                                names = varnames_type2
+                                ))
+    
+    
+    ###############################################################################################################################
+    
+    #                                      Variable of Type 3 - xdps   
+    
+    #               Nominal capacity of tunnel for d ∈ D routed over path p ∈ P(d), when the network is in state s 
+    
+    ###############################################################################################################################
+    
+    
+    varnames_type3 = ["xd" + str(d + 1) + "p" + str(p + 1) + "s" + str(j + 1) for j in range(N_States) for d in range(N_Demands) for p in range(numPaths_of_d[d])]
+    var_type3 = list(c.variables.add(lb=[0.0] * N_Paths * N_States,
+                                ub=[cplex.infinity] * N_Paths * N_States,
+                                types= [c.variables.type.continuous]* N_Paths * N_States,
+                                names = varnames_type3
+                                ))
+    
+    
+    ##########################################################################
+    
+    #                                   Constraints
+    # Remark: When a constraint has a variable on the right hand side or a variable multiplied with a parameter,
+    # we need to bring it to the left hand side, otherwise cplex doesnt recognize it as a variable and only gets the index of it.
+    
+    
+    ##########################################################################
+    
+    
+    
+    ##############################################################################
+    
+    #            Constraint of type 1: Capacity constraint
+    #
+    #                       forall IP links e ∈ E: 
+    
+    #           sum(d ∈ D) sum(p ∈ p(d)) xdp0 - Ye0 <= 0 
+    
+    ###############################################################################
+    
+    
+    for e in range(N_IPlinks):
+        
+        # names of the constraints
+        constnames_type1 = ["c1_" + str(e)]
+        
+        # right hand side is a list of zeros since the variables of type one we can bring them to the left hand side
+        rhs1 = [0.0]
+        
+        # In set_of_p_perlink we save the elements of the set of Paths per link - for example: p0,p3,p4,p7,p9,p11
+        set_of_p_perlink = set_paths_per_link.at[e,'Paths per link']
+        
+        # In newstr we save the numbers of the elements of the set of Paths per link - for example: 0,3,4,7,9,11
+        newstr = ''.join((ch if ch in '0123456789.-e' else ' ') for ch in set_of_p_perlink)
+        
+        # in listOfNumbers we save the elements of newstr as a list - for example: [0,3,4,7,9,11]
+        listOfNumbers = [int(i) for i in newstr.split()]
+        
+        
+        # indicies get the variables 
+        # we use the list listOfNumbers to loop through the elements of variable of type 2
+        ind = [var_type2[p] for p in listOfNumbers] + [var_type1[e]]
+        
+        # val gives the coefficients of the indicies, length of the list is the same as the length of listOfNumbers
+        val = [1.0] * len(listOfNumbers) +[-1.0]
+        
+        
+        rows = [[ind, val]]
+        
+        # lin_expr is a matrix in list-of-lists format.
+        # senses specifies the senses of the linear constraint -L means less-than
+        c.linear_constraints.add(lin_expr = rows,
+                                 senses="L", 
+                                 rhs=rhs1,
+                                 names = constnames_type1)
+        
+
+    ######################################################################################
+    
+    #               Constraint of type 2: Flow conservation constraint
+    
+    #                 forall demands d ∈ D, forall states s ∈ S : 
+    
+    #                    sum(p ∈ p(d)) xdps >= h(d)
+    
+    ######################################################################################
+    
+    
+    for d in range(N_Demands):  
+        
+        # In traffic_volume are saved the elements of the traffic matrix
+        traffic_volume = set_TrafficVolume.at[d,'h(d)']
+        
+        # constraint of type 2 contains all the states from the set of States plus the state 0 - state of network in failure free mode
+        for s in range(N_States + 1):
+            
+            # names of the constraints
+            constnames_type2 = ["c2_" + str(s + (N_States + 1) * d)]
+            
+            # to write the contraints of type 2 for state 0 - failure free mode, then we need to get the variables of type2 - xdp0 
+            
+            if (s == 0):
+                
+                # right hand side is a list of elements of the traffic matrix
+                rhs1 = [int(traffic_volume)]
+                
+                # In set_p_per_demand we save the elements of the set of Paths per demand - for example: p0,p1
+                set_p_per_demand = set_paths_per_demand.at[d, 'paths per demand']
+                
+                # In newstr we save the numbers of the elements of the set of Paths per demand - for example: 0,1
+                newstr = ''.join((ch if ch in '0123456789.-e' else ' ') for ch in set_p_per_demand)
+                
+                # in listOfNumbers we save the elements of newstr as a list - for example: [0,1]
+                listOfNumbers = [int(i) for i in newstr.split()]
+                
+                # indicies get the variables
+                # we use the list listOfNumbers to loop through the elements of variable of type 2
+                ind = [var_type2[k] for k in listOfNumbers]
+                
+                # val gives the coefficients of the indicies, length of the list is the same as the length of listOfNumbers
+                val = [1.0] * len(listOfNumbers)
+                
+                rows = [[ind, val]]
+                
+                # lin_expr is a matrix in list-of-lists format.
+                # senses specifies the senses of the linear constraint -G means greater-than
+                c.linear_constraints.add(lin_expr = rows,
+                                         senses="G", 
+                                         rhs=rhs1,
+                                         names = constnames_type2)
+            
+            # to write the contraints of type 2 for all other states in the set of States S, then we need to get the variables of type3 - xdps 
+            else:
+                
+                rhs1 = [int(traffic_volume)]
+                set_p_per_demand1 = set_paths_per_demand.at[d, 'paths per demand']
+                newstr1 = ''.join((ch if ch in '0123456789.-e' else ' ') for ch in set_p_per_demand1)
+                listOfNumbers1 = [int(i) for i in newstr1.split()]
+                
+                # indicies get the variables
+                # we use the list listOfNumbers to loop through the elements of variable of type 3
+                ind = [var_type3[k + (s-1)*N_Paths] for k in listOfNumbers1]
+                val = [1.0] * len(listOfNumbers1)
+                rows = [[ind, val]]
+                c.linear_constraints.add(lin_expr = rows,
+                                         senses="G", 
+                                         rhs=rhs1,
+                                         names = constnames_type2)   
+                
+                
+    ############################################################################################################
+    
+    #                      Constraint of type 3: Capacity constraint 
+    
+    #                     forall IP links e ∈ E, forall states s ∈ S(e): 
+    
+    #                   sum(d ∈ D) sum(p ∈ R(d,e)) xdps  - alpha(e,s) * Ye0 <= 0
+    
+    ############################################################################################################
+    
+    #counter needed to name the constraints
+    cnt_link_states = 0
+    for e in range(N_IPlinks):
+        
+        # In subset_of_states we save the elements of the subset of states per link - for example: s1,s2
+        subset_of_states = subset_states.at[e,'Subset of States S€']
+        
+        # In newstr we save the numbers of the elements of the subset of states per link - for example: 1,2 
+        newstr = ''.join((ch if ch in '0123456789.-e' else ' ') for ch in subset_of_states)
+        
+        # in listOfNumbers we save the elements of newstr as a list - for example: [1,2]
+        listOfNumbers = [int(i) for i in newstr.split()]
+        
+        #counter needed to name the constraints
+        ind_naming = 0
+        
+        for s in (listOfNumbers):
+            
+            # names of the constraints
+            constnames_type3 = ["c3_" + str(ind_naming + cnt_link_states)]
+            
+            #counter increased by 1
+            ind_naming = ind_naming + 1
+            
+            # right hand side is a list of zeros since the variables of type one we can bring them to the left hand side
+            rhs1 = [0.0]
+            
+            # In set_of_p_perlink we save the elements of the set of Paths per link - for example: p0,p3,p4,p7,p9,p11
+            set_of_p_perlink = set_paths_per_link.at[e,'Paths per link']
+            
+            # In newstr1 we save the numbers of the elements of the set of Paths per demand - for example: 0,3,4,7,9,11
+            newstr1 = ''.join((ch if ch in '0123456789.-e' else ' ') for ch in set_of_p_perlink)
+            
+            # in listOfNumbers we save the elements of newstr as a list - for example: [0,3,4,7,9,11]
+            listOfNumbers1 = [int(i) for i in newstr1.split()]
+            
+            # indicies get the variables
+            # we use the list listOfNumbers1 to loop through the elements of variable of type 3
+            ind = [var_type3[k + (s - 1) * N_Paths] for k in listOfNumbers1] + [var_type1[e]]
+            
+            # val gives the coefficients of the indicies, length of the list is the same as the length of listOfNumbers1
+            # alpha.iloc[e,s] gets elements as a matrix from excel sheet alpha
+            val = [1.0] * len(listOfNumbers1) + [ - float(alpha.iloc[e,s])]
+            
+            rows = [[ind, val]]
+            
+            # lin_expr is a matrix in list-of-lists format.
+            # senses specifies the senses of the linear constraint -L means less-than
+            c.linear_constraints.add(lin_expr = rows,
+                                     senses="L", 
+                                     rhs=rhs1,
+                                     names = constnames_type3) 
+        
+        # the counter is increased by the length of the list listOfNumbers
+        cnt_link_states = cnt_link_states + len(listOfNumbers)
+    
+    ############################################################################################
+    
+    #                     Constraint of type 4: Capacity constraint
+    
+    #                  forall demands d ∈ D, forall paths p ∈ p(d), forall states s ∈ S: 
+    
+    #                         xdps - xdp0 <= 0
+    
+    #############################################################################################
+    
+    for s in range(N_States):
+    
+        for d in range(N_Demands): 
+            
+            # In set_p_per_demand we save the elements of the set of Paths per demand - for example: p0,p1
+            set_p_per_demand = set_paths_per_demand.at[d, 'paths per demand']
+            
+            # In newstr we save the numbers of the elements of the set of Paths per demand - for example: 0,1
+            newstr = ''.join((ch if ch in '0123456789.-e' else ' ') for ch in set_p_per_demand)
+            
+            # in listOfNumbers we save the elements of newstr as a list - for example: [0,1]
+            listOfNumbers = [int(i) for i in newstr.split()]
+            
+            for p in listOfNumbers:
+                
+                # names of the constraints
+                constnames_type4 = ["c4_" + str(p + N_Paths * s)]
+                
+                # right hand side is a list of zeros since the variables of type one we can bring them to the left hand side
+                rhs1 = [0.0]
+                
+                # indicies get the variables
+                ind = [var_type3[p + N_Paths * s]] + [var_type2[p]]
+                
+                # val gives the coefficients of the indicies
+                val = [1.0] + [-1.0]
+                
+                rows = [[ind, val]]
+                
+                # lin_expr is a matrix in list-of-lists format.
+                # senses specifies the senses of the linear constraint -L means less-than
+                c.linear_constraints.add(lin_expr= rows,
+                                                   senses="L", 
+                                                   rhs= rhs1,
+                                                   names = constnames_type4)
+    
+
+    
+    
+    return c, var_type1, var_type2, var_type3
+    
+    
+if __name__ == "__main__":
+    main()
+    
