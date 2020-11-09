@@ -29,7 +29,7 @@ Type 2 - xdp0     Nominal capacity of tunnel for demand d ∈ D routed over path
 Type 3 - xdps     Nominal capacity of tunnel for d ∈ D routed over path p ∈ P(d), when the network is in state s      
 
 Objective:
-minimize sum(e ∈ E) Ye0
+minimize sum(e ∈ E) Ye0 * cost(e)
 
 Constraints:
 Type 1:     forall IP links e ∈ E: sum(d ∈ D) sum(p ∈ p(d)) xdp0 <= Ye0 
@@ -282,6 +282,7 @@ def configureproblem(data):
     #each set will be read out of the excel file with its specific column
  
     set_IPLinks = pd.read_excel(data, sheet_name='IPlinks' , usecols= ['IP links E'])
+    cost = pd.read_excel(data, sheet_name='Cost' , usecols= ['unit cost of IP link'])
     set_Demands = pd.read_excel(data, sheet_name='Demands' , usecols= ['D Demands'])
     set_TrafficVolume = pd.read_excel(data, sheet_name='TrafficVolume' , usecols= ['h(d)'])
     set_States = pd.read_excel(data, sheet_name='States', usecols=['States S'])    
@@ -298,6 +299,10 @@ def configureproblem(data):
     N_States = len(set_States)
     N_Paths = len(set_Paths)
     
+    #gets the values from cost dataframe and makes it a list
+    cost = cost["unit cost of IP link"].tolist()
+    #makes every element of the list cost as float and not integer
+    cost = [float(i) for i in cost]
     
     
     ##############################################################################
@@ -335,7 +340,7 @@ def configureproblem(data):
     
     #             Add Objective with the purpose of minimizing it 
     
-    #                minimize sum(e ∈ E) Ye0
+    #                minimize sum(e ∈ E) Ye0  * cost(e)
     
     ##############################################################################
     
@@ -365,10 +370,10 @@ def configureproblem(data):
     #2. lb - is the lower bound of the variables. It is usually 0.
     #3. ub -is the upper bound of the variables. It is usually infinity.
     #4. types - specify the type of variables. In our case all the variables are of type continuous
-    #5. names - specifies the names of variables
+    #5. names - specifies the names of variabes
     
     varnames_type1 = ["ye" + str(e) for e in range(N_IPlinks)]
-    var_type1 = list(c.variables.add(obj = [1.0] * N_IPlinks, 
+    var_type1 = list(c.variables.add(obj = cost, 
                                 lb=[0.0] * N_IPlinks,
                                 ub=[cplex.infinity] * N_IPlinks,
                                 types= [c.variables.type.continuous]* N_IPlinks,

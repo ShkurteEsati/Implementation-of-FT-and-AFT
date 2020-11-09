@@ -30,7 +30,7 @@ Type 3 - xdps     Nominal capacity of tunnel for d ∈ D routed over path p ∈ 
 Type 4 - zdpe     -.-.-
 
 Objective:
-minimize sum(e ∈ E) Ye0
+minimize sum(e ∈ E) Ye0 * cost(e)
 
 Constraints:
 Type 1:     forall IP links e ∈ E: sum(d ∈ D) sum(p ∈ p(d)) xdp0 <= Ye0 
@@ -302,6 +302,7 @@ def configureproblem(data):
     #each set will be read out of the excel file with its specific column
  
     set_IPLinks = pd.read_excel(data, sheet_name='IPlinks' , usecols= ['IP links E'])
+    cost = pd.read_excel(data, sheet_name='Cost' , usecols= ['unit cost of IP link'])
     set_Demands = pd.read_excel(data, sheet_name='Demands' , usecols= ['D Demands'])
     set_TrafficVolume = pd.read_excel(data, sheet_name='TrafficVolume' , usecols= ['h(d)'])
     set_States = pd.read_excel(data, sheet_name='States', usecols=['States S'])    
@@ -322,7 +323,10 @@ def configureproblem(data):
     N_Demands = len(set_Demands)
     N_States = len(set_States)
     N_Paths = len(set_Paths)
-    #N_Edplinks = len(set_links_per_path)
+    #gets the values from cost dataframe and makes it a list
+    cost = cost["unit cost of IP link"].tolist()
+    #makes every element of the list cost as float and not integer
+    cost = [float(i) for i in cost]
     
     
     
