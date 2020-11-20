@@ -55,6 +55,7 @@ import openpyxl
 
 
 
+
 def main():
     
     flowthinning()
@@ -63,7 +64,7 @@ def main():
 def flowthinning():
     
     #Read the data from excel files
-    data = pd.ExcelFile(r'C:\Users\user\Desktop\Research_Project_Shkurte_Esati\Code\example_inputdata.xlsx')
+    data = pd.ExcelFile(r'C:\Users\user\Desktop\Research_Project_Shkurte_Esati\Code\FT_problem\flow_thinning_inputdata.xlsx')
     
     c, var_type1, var_type2, var_type3 = configureproblem(data)
 
@@ -120,7 +121,7 @@ def writeexcelfile(c, var_type1, var_type2, var_type3):
     for j, val in enumerate(y):
         print("%d Variable {0} = %17.10g".format(var_names[j + len(x)]) % (j, val))
     print()    
-    
+    '''
     # prints the variables of type 3 with their corresponding values and name 
     z = solution.get_values(var_type3)
     for j, val in enumerate(z):
@@ -166,7 +167,7 @@ def writeexcelfile(c, var_type1, var_type2, var_type3):
     c4_names = [s for s in constraint_names if 'c4_' in s]
     print("Constraints of type 4 are: ")
     print(*c4_names, sep = ", ")
-
+'''
 
     ############################################################################################
     
@@ -182,10 +183,12 @@ def writeexcelfile(c, var_type1, var_type2, var_type3):
         
         book = openpyxl.load_workbook(fname)
         
+        book.remove(book['Objective'])
         book.remove(book['Var Type1'])
         book.remove(book['Var Type2'])
         book.remove(book['Var Type3'])
-       
+        book.remove(book['Constraints'])
+        book.remove(book['Verification of Constraints'])
         
     else:
         
@@ -193,10 +196,26 @@ def writeexcelfile(c, var_type1, var_type2, var_type3):
         
         book = Workbook()
         
-    
+    book.create_sheet('Objective')
     book.create_sheet('Var Type1')
     book.create_sheet('Var Type2') 
     book.create_sheet('Var Type3')
+    book.create_sheet('Constraints')
+    book.create_sheet('Verification of Constraints')
+    
+    
+    ######################################################################
+    
+    #                    Print Objective
+    
+    
+    ######################################################################
+    
+    sheet = book['Objective']
+    sheet['A1'] = 'Objective Value:'
+    
+    sheet['B1'] = solution.get_objective_value()
+    
     
 
     ######################################################################
@@ -247,7 +266,8 @@ def writeexcelfile(c, var_type1, var_type2, var_type3):
     sheet['A1'] = 'Index:'
     sheet['B1'] = 'Name of variable:'
     sheet['C1'] = 'Value:'
-    
+    z = solution.get_values(var_type3)
+
     for j,val in enumerate(z):
         
         sheet['A' + str(j+2)] = j
@@ -255,9 +275,115 @@ def writeexcelfile(c, var_type1, var_type2, var_type3):
         sheet['C' + str(j+2)] = val
                
 
-    book.save(fname)
     
-      
+    
+    ######################################################################
+
+    #                    Print Constraints 
+
+    ######################################################################
+
+ 
+
+    con_names   = c.linear_constraints.get_names()
+    con_number  = c.linear_constraints.get_num()
+    con_rows    = c.linear_constraints.get_rows()
+    con_rhs     = c.linear_constraints.get_rhs()
+    con_senses  = c.linear_constraints.get_senses()
+    var_values = solution.get_values()
+
+    sheet =  book['Constraints']
+    sheet['A1'] = 'Overview over all constraints:'
+
+    for i in range(con_number):
+            
+        con_string = con_names[i] + ':  '
+        spair = con_rows[i]
+        ind, val = spair.unpack()
+
+        for j in range(len(ind)):
+
+                if val[j] >= 0:
+
+                        con_string = con_string + '+ ' + str(val[j]) + ' * ' + var_names[ind[j]] + ' '
+                
+                elif val[j] < 0:
+                        con_string = con_string + '+ ' + str(val[j]) + ' * ' + var_names[ind[j]] + ' '
+                        
+
+        if con_senses[i] == 'G':
+
+                con_string = con_string + '>= '
+                
+
+        elif con_senses[i] == 'L':
+
+                con_string = con_string + '<= '
+                
+
+        elif con_senses[i] == 'E':
+
+                con_string = con_string + '= '
+                
+
+        elif con_senses[i] == 'R':
+
+                con_string = con_string + 'is in the range of: '
+                
+
+        con_string = con_string + str(con_rhs[i])
+        
+
+        sheet['A' + str(i+2)] = con_string
+        
+       
+    ################
+    sheet =  book['Verification of Constraints']
+    sheet['A1'] = 'Overview over all constraints:'
+    sheet['O1'] = 'Left Handside of the constraints:'
+    
+    for i in range(con_number):
+
+        con_values = 0        
+        con_string = con_names[i] + ':  '
+        spair = con_rows[i]
+        ind, val = spair.unpack()
+
+        for j in range(len(ind)):
+
+                if val[j] >= 0:
+
+                        con_string = con_string + '+ ' + str(val[j]) + ' * ' + str(var_values[ind[j]])  + ' '
+                        con_values = con_values + val[j]  *  var_values[ind[j]] 
+                        
+                elif val[j] < 0:
+
+                        con_string = con_string + str(val[j]) + ' * ' + str(var_values[ind[j]])  + ' '
+                        con_values = con_values 
+                        
+        if con_senses[i] == 'G':
+
+                con_string = con_string + '>= '
+                
+        elif con_senses[i] == 'L':
+
+                con_string = con_string + '<= '
+                
+        elif con_senses[i] == 'E':
+
+                con_string = con_string + '= '
+                
+        elif con_senses[i] == 'R':
+
+                con_string = con_string + 'is in the range of: '
+                
+        con_string = con_string + str(con_rhs[i])
+        
+        sheet['A' + str(i+2)] = con_string
+        sheet['O' + str(i+2)] = con_values
+
+    
+    book.save(fname)
     
 def configureproblem(data):
     
@@ -268,6 +394,16 @@ def configureproblem(data):
     ##############################################################################
 
     c = cplex.Cplex()
+    
+    CPLX_LP_PARAMETERS = {
+    #'simplex.tolerances.optimality' : 1e-6,
+    'simplex.tolerances.feasibility' : 1e-9
+    } 
+
+    #c.parameters.simplex.tolerances.optimality.set(CPLX_LP_PARAMETERS['simplex.tolerances.optimality'])
+    c.parameters.simplex.tolerances.feasibility.set(CPLX_LP_PARAMETERS['simplex.tolerances.feasibility'])
+    
+
 
     ##############################################################################
     
@@ -540,7 +676,7 @@ def configureproblem(data):
             if (s == 0):
                 
                 # right hand side is a list of elements of the traffic matrix
-                rhs1 = [int(traffic_volume)]
+                rhs1 = [float(traffic_volume)]
                 
                 # indicies get the variables
                 # we use the list listOfNumbers to loop through the elements of variable of type 2
@@ -561,7 +697,7 @@ def configureproblem(data):
             # to write the contraints of type 2 for all other states in the set of States S, then we need to get the variables of type3 - xdps 
             else:
                 
-                rhs1 = [int(traffic_volume)]
+                rhs1 = [float(traffic_volume)]
                 
                 # indicies get the variables
                 # we use the list listOfNumbers to loop through the elements of variable of type 3
